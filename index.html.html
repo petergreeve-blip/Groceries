@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Shopping List</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            -webkit-tap-highlight-color: transparent;
+            overscroll-behavior: none;
+        }
+        .category-section {
+            scroll-margin-top: 60px;
+        }
+        input[type="checkbox"] {
+            width: 24px;
+            height: 24px;
+        }
+        .item-checked {
+            opacity: 0.5;
+            text-decoration: line-through;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const CATEGORIES = [
+            'Fruit & Veg',
+            'Meat',
+            'Dairy',
+            'Frozen',
+            'Bakery',
+            'Pantry',
+            'Household'
+        ];
+
+        const STORES = ['Coles', 'Aldi', 'Woolworths', 'Zetland Fruit and Veg', 'Zetland Asian grocer', 'Eastlakes Fruit and Veg'];
+
+        function ShoppingListApp() {
+            const [items, setItems] = useState([]);
+            const [newItemName, setNewItemName] = useState('');
+            const [selectedStore, setSelectedStore] = useState('Coles');
+            const [viewMode, setViewMode] = useState('all'); // 'all' or store name
+            const [showAddForm, setShowAddForm] = useState(false);
+            const [editingItem, setEditingItem] = useState(null);
+            const [showStats, setShowStats] = useState(false);
+            
+            // Form states for adding/editing
+            const [formCategory, setFormCategory] = useState(CATEGORIES[0]);
+            const [formQuantity, setFormQuantity] = useState(1);
+            const [formPrice, setFormPrice] = useState('');
+            const [formSaleOnly, setFormSaleOnly] = useState(false);
+            const [formStore, setFormStore] = useState('Coles');
+
+            // Load items from storage on mount
+            useEffect(() => {
+                loadItems();
+                
+                // Set up polling to check for updates from other devices
+                const interval = setInterval(loadItems, 3000);
+                return () => clearInterval(interval);
+            }, []);
+
+            const loadItems = async () => {
+                try {
+                    const result = await window.storage.get('shopping-items', true);
+                    if (result && result.value) {
+                        const loadedItems = JSON.parse(result.value);
+                        setItems(loadedItems);
+                    }
+                } catch (error) {
+                    // Items don't exist yet, that's fine
+                    console.log('No items yet');
+                }
+            };
+
+            const saveItems = async (updatedItems) => {
+                try {
+                    await window.storage.set('shopping-items', JSON.stringify(updatedItems), true);
+                    setItems(updatedItems);
+                } catch (error) {
+                    console.error('Error saving items:', error);
+                    alert('Error saving items. Please try again.');
+                }
+            };
+
+            const categorizeItem = (itemName) => {
+                const name = itemName.toLowerCase();
+                
+                // Fruit & Veg
+                if (/apple|banana|orange|tomato|potato|carrot|lettuce|onion|garlic|fruit|veg|vegetable|salad|cucumber|capsicum|mushroom|broccoli|cauliflower|spinach|avocado|lemon|lime|berry|melon/i.test(name)) {
+                    return 'Fruit & Veg';
+                }
+                
+                // Meat
+                if (/chicken|beef|pork|lamb|meat|sausage|bacon|ham|mince|steak|fish|salmon|tuna|prawn|seafood/i.test(name)) {
+                    return 'Meat';
+                }
+                
+                // Dairy
+                if (/milk|cheese|butter|yogurt|cream|dairy|eggs?/i.test(name)) {
+                    return 'Dairy';
+                }
+                
+                // Frozen
+                if (/frozen|ice ?cream|pizza|chips|fries/i.test(name)) {
+                    return 'Frozen';
+                }
+                
+                // Bakery
+                if (/bread|bun|roll|bagel|muffin|cake|pastry|bakery|croissant/i.test(name)) {
+                    return 'Bakery';
+                }
+                
+                // Household
+                if (/toilet|paper|detergent|soap|cleaner|shampoo|toothpaste|tissue|bin|bag|cleaning|laundry|dish/i.test(name)) {
+                    return 'Household';
+                }
+                
+                // Default to Pantry
+                return 'Pantry';
+            };
+
+            const addItem = () => {
+                if (!newItemName.trim()) return;
+
+                const newItem = {
+                    id: Date.now() + Math.random(),
+                    name: newItemName.trim(),
+                    category: formCategory,
+                    quantity: formQuantity,
+                    price: formPrice ? parseFloat(formPrice) : null,
+                    saleOnly: formSaleOnly,
+                    store: formStore,
+                    checked: false,
+                    addedAt: new Date().toISOString()
+                };
+
+                saveItems([...items, newItem]);
+                resetForm();
+                setShowAddForm(false);
+            };
+
+            const quickAddItem = (itemName) => {
+                if (!itemName.trim()) return;
+
+                const category = categorizeItem(itemName);
+                
+                const newItem = {
+                    id: Date.now() + Math.random(),
+                    name: itemName.trim(),
+                    category: category,
+                    quantity: 1,
+                    price: null,
+                    saleOnly: false,
+                    store: selectedStore,
+                    checked: false,
+                    addedAt: new Date().toISOString()
+                };
+
+                saveItems([...items, newItem]);
+            };
+
+            const toggleItem = (id) => {
+                const updatedItems = items.map(item =>
+                    item.id === id ? { ...item, checked: !item.checked } : item
+                );
+                saveItems(updatedItems);
+            };
+
+            const deleteItem = (id) => {
+                if (confirm('Remove this item?')) {
+                    saveItems(items.filter(item => item.id !== id));
+                }
+            };
+
+            const updateItem = () => {
+                if (!editingItem) return;
+
+                const updatedItems = items.map(item =>
+                    item.id === editingItem.id
+                        ? {
+                            ...item,
+                            name: newItemName,
+                            category: formCategory,
+                            quantity: formQuantity,
+                            price: formPrice ? parseFloat(formPrice) : null,
+                            saleOnly: formSaleOnly,
+                            store: formStore
+                        }
+                        : item
+                );
+
+                saveItems(updatedItems);
+                resetForm();
+                setEditingItem(null);
+            };
+
+            const startEdit = (item) => {
+                setEditingItem(item);
+                setNewItemName(item.name);
+                setFormCategory(item.category);
+                setFormQuantity(item.quantity);
+                setFormPrice(item.price || '');
+                setFormSaleOnly(item.saleOnly);
+                setFormStore(item.store);
+                setShowAddForm(true);
+            };
+
+            const resetForm = () => {
+                setNewItemName('');
+                setFormCategory(CATEGORIES[0]);
+                setFormQuantity(1);
+                setFormPrice('');
+                setFormSaleOnly(false);
+                setFormStore(selectedStore);
+            };
+
+            const clearCheckedItems = () => {
+                if (confirm('Remove all checked items?')) {
+                    saveItems(items.filter(item => !item.checked));
+                }
+            };
+
+            const clearAllItems = () => {
+                if (confirm('Clear entire shopping list? This cannot be undone.')) {
+                    saveItems([]);
+                }
+            };
+
+            const filteredItems = viewMode === 'all' 
+                ? items 
+                : items.filter(item => item.store === viewMode);
+
+            const itemsByCategory = CATEGORIES.reduce((acc, category) => {
+                acc[category] = filteredItems.filter(item => item.category === category);
+                return acc;
+            }, {});
+
+            const totalItems = filteredItems.length;
+            const checkedItems = filteredItems.filter(i => i.checked).length;
+            const uncheckedItems = totalItems - checkedItems;
+            const estimatedTotal = filteredItems
+                .filter(i => !i.checked && i.price)
+                .reduce((sum, i) => sum + (i.price * i.quantity), 0);
+
+            return (
+                <div className="max-w-2xl mx-auto min-h-screen bg-white shadow-lg">
+                    {/* Header */}
+                    <div className="sticky top-0 z-10 bg-gradient-to-r from-green-600 to-green-700 text-white p-4 shadow-md">
+                        <h1 className="text-2xl font-bold mb-3">🛒 Smart Shopping List</h1>
+                        
+                        {/* Store selector */}
+                        <div className="flex gap-2 overflow-x-auto pb-2">
+                            <button
+                                onClick={() => setViewMode('all')}
+                                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition ${
+                                    viewMode === 'all'
+                                        ? 'bg-white text-green-700'
+                                        : 'bg-green-500 text-white hover:bg-green-400'
+                                }`}
+                            >
+                                All Stores
+                            </button>
+                            {STORES.map(store => (
+                                <button
+                                    key={store}
+                                    onClick={() => setViewMode(store)}
+                                    className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition ${
+                                        viewMode === store
+                                            ? 'bg-white text-green-700'
+                                            : 'bg-green-500 text-white hover:bg-green-400'
+                                    }`}
+                                >
+                                    {store}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Stats bar */}
+                        <div className="mt-3 flex justify-between text-sm">
+                            <span>{uncheckedItems} to buy</span>
+                            <span>{checkedItems} checked</span>
+                            {estimatedTotal > 0 && (
+                                <span>≈ ${estimatedTotal.toFixed(2)}</span>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Quick add bar */}
+                    <div className="sticky top-[140px] z-10 bg-gray-100 p-3 border-b-2 border-gray-300">
+                        <div className="flex gap-2">
+                            <input
+                                type="text"
+                                placeholder="Quick add (auto-categorized)..."
+                                className="flex-1 px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none"
+                                value={newItemName}
+                                onChange={(e) => setNewItemName(e.target.value)}
+                                onKeyPress={(e) => {
+                                    if (e.key === 'Enter' && !showAddForm) {
+                                        quickAddItem(newItemName);
+                                        setNewItemName('');
+                                    }
+                                }}
+                            />
+                            <button
+                                onClick={() => {
+                                    if (showAddForm) {
+                                        quickAddItem(newItemName);
+                                        setNewItemName('');
+                                    } else {
+                                        setShowAddForm(true);
+                                    }
+                                }}
+                                className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition"
+                            >
+                                {showAddForm ? 'Quick' : 'Detailed'}
+                            </button>
+                        </div>
+
+                        {/* Detailed add form */}
+                        {showAddForm && (
+                            <div className="mt-3 p-4 bg-white rounded-lg border-2 border-green-200">
+                                <h3 className="font-bold mb-3 text-gray-700">
+                                    {editingItem ? 'Edit Item' : 'Add Detailed Item'}
+                                </h3>
+                                
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="col-span-2">
+                                        <label className="block text-sm font-medium mb-1">Item Name</label>
+                                        <input
+                                            type="text"
+                                            value={newItemName}
+                                            onChange={(e) => setNewItemName(e.target.value)}
+                                            className="w-full px-3 py-2 border rounded-lg focus:border-green-500 focus:outline-none"
+                                            placeholder="e.g., Milk"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">Category</label>
+                                        <select
+                                            value={formCategory}
+                                            onChange={(e) => setFormCategory(e.target.value)}
+                                            className="w-full px-3 py-2 border rounded-lg focus:border-green-500 focus:outline-none"
+                                        >
+                                            {CATEGORIES.map(cat => (
+                                                <option key={cat} value={cat}>{cat}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">Store</label>
+                                        <select
+                                            value={formStore}
+                                            onChange={(e) => setFormStore(e.target.value)}
+                                            className="w-full px-3 py-2 border rounded-lg focus:border-green-500 focus:outline-none"
+                                        >
+                                            {STORES.map(store => (
+                                                <option key={store} value={store}>{store}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">Quantity</label>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            value={formQuantity}
+                                            onChange={(e) => setFormQuantity(parseInt(e.target.value) || 1)}
+                                            className="w-full px-3 py-2 border rounded-lg focus:border-green-500 focus:outline-none"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">Price ($)</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            value={formPrice}
+                                            onChange={(e) => setFormPrice(e.target.value)}
+                                            className="w-full px-3 py-2 border rounded-lg focus:border-green-500 focus:outline-none"
+                                            placeholder="Optional"
+                                        />
+                                    </div>
+
+                                    <div className="col-span-2">
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={formSaleOnly}
+                                                onChange={(e) => setFormSaleOnly(e.target.checked)}
+                                                className="rounded"
+                                            />
+                                            <span className="text-sm font-medium">Only buy on sale 🏷️</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-2 mt-4">
+                                    <button
+                                        onClick={editingItem ? updateItem : addItem}
+                                        className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700"
+                                    >
+                                        {editingItem ? 'Update' : 'Add Item'}
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setShowAddForm(false);
+                                            setEditingItem(null);
+                                            resetForm();
+                                        }}
+                                        className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-400"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Shopping list by category */}
+                    <div className="p-4 pb-20">
+                        {filteredItems.length === 0 ? (
+                            <div className="text-center py-12 text-gray-400">
+                                <p className="text-xl mb-2">🛒</p>
+                                <p>Your shopping list is empty</p>
+                                <p className="text-sm mt-2">Add items using the search bar above</p>
+                            </div>
+                        ) : (
+                            CATEGORIES.map(category => {
+                                const categoryItems = itemsByCategory[category];
+                                if (categoryItems.length === 0) return null;
+
+                                const uncheckedInCategory = categoryItems.filter(i => !i.checked).length;
+
+                                return (
+                                    <div key={category} className="category-section mb-6">
+                                        <h2 className="text-lg font-bold text-gray-700 mb-3 pb-2 border-b-2 border-gray-200">
+                                            {category} 
+                                            <span className="ml-2 text-sm font-normal text-gray-500">
+                                                ({uncheckedInCategory} left)
+                                            </span>
+                                        </h2>
+                                        
+                                        <div className="space-y-2">
+                                            {categoryItems.map(item => (
+                                                <div
+                                                    key={item.id}
+                                                    className={`flex items-start gap-3 p-3 bg-gray-50 rounded-lg border-2 ${
+                                                        item.checked ? 'border-gray-200' : 'border-green-200'
+                                                    } ${item.checked ? 'item-checked' : ''}`}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={item.checked}
+                                                        onChange={() => toggleItem(item.id)}
+                                                        className="mt-1 cursor-pointer flex-shrink-0"
+                                                    />
+                                                    
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-start justify-between gap-2">
+                                                            <div className="flex-1">
+                                                                <div className="font-medium text-gray-800">
+                                                                    {item.quantity > 1 && (
+                                                                        <span className="text-green-600 mr-1">
+                                                                            {item.quantity}×
+                                                                        </span>
+                                                                    )}
+                                                                    {item.name}
+                                                                </div>
+                                                                
+                                                                <div className="flex flex-wrap gap-2 mt-1 text-xs">
+                                                                    {item.saleOnly && (
+                                                                        <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">
+                                                                            🏷️ Sale only
+                                                                        </span>
+                                                                    )}
+                                                                    {item.price && (
+                                                                        <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                                                                            ${(item.price * item.quantity).toFixed(2)}
+                                                                        </span>
+                                                                    )}
+                                                                    {viewMode === 'all' && (
+                                                                        <span className="bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">
+                                                                            {item.store}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            <div className="flex gap-1 flex-shrink-0">
+                                                                <button
+                                                                    onClick={() => startEdit(item)}
+                                                                    className="p-1.5 text-blue-600 hover:bg-blue-100 rounded"
+                                                                >
+                                                                    ✏️
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => deleteItem(item.id)}
+                                                                    className="p-1.5 text-red-600 hover:bg-red-100 rounded"
+                                                                >
+                                                                    🗑️
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+
+                    {/* Bottom action bar */}
+                    {filteredItems.length > 0 && (
+                        <div className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-gray-200 p-4 shadow-lg">
+                            <div className="max-w-2xl mx-auto flex gap-2">
+                                <button
+                                    onClick={clearCheckedItems}
+                                    disabled={checkedItems === 0}
+                                    className="flex-1 px-4 py-3 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
+                                >
+                                    Clear Checked ({checkedItems})
+                                </button>
+                                <button
+                                    onClick={clearAllItems}
+                                    className="px-4 py-3 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition"
+                                >
+                                    Clear All
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        ReactDOM.render(<ShoppingListApp />, document.getElementById('root'));
+    </script>
+</body>
+</html>
